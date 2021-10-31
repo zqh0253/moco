@@ -221,7 +221,7 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, 'train')
+    traindir = args.data
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     if args.aug_plus:
@@ -252,7 +252,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #     traindir,
     #     moco.loader.TwoCropsTransform(transforms.Compose(augmentation)))
 
-    train_dataset = LabelYTBDataset(data_path='/home/yhxu/qhzhang/workspace/ytb', interval=10, phase='all', 
+    train_dataset = LabelYTBDataset(data_path=traindir, interval=10, phase='all', 
             transform=moco.loader.TwoCropsTransform(transforms.Compose(augmentation)))
 
     if args.distributed:
