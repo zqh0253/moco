@@ -24,6 +24,9 @@ import torchvision.models as models
 
 import moco.loader
 import moco.builder
+import wandb
+
+from utils.dataset import LabelYTBDataset
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -134,6 +137,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    wandb.init(project='taco', group='DDP4')
     args.gpu = gpu
 
     # suppress printing if not master
@@ -244,9 +248,12 @@ def main_worker(gpu, ngpus_per_node, args):
             normalize
         ]
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        moco.loader.TwoCropsTransform(transforms.Compose(augmentation)))
+    # train_dataset = datasets.ImageFolder(
+    #     traindir,
+    #     moco.loader.TwoCropsTransform(transforms.Compose(augmentation)))
+
+    train_dataset = LabelYTBDataset(data_path='/home/yhxu/qhzhang/workspace/ytb', interval=10, phase='all', 
+            transform=moco.loader.TwoCropsTransform(transforms.Compose(augmentation)))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -273,6 +280,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+        print('finish epoch:', epoch)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
@@ -305,6 +313,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # acc1/acc5 are (K+1)-way contrast classifier accuracy
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        wandb.log({
+            'loss': loss.item(),
+            'acc1': acc1[0],
+            'acc5': acc5[0]
+            })
         losses.update(loss.item(), images[0].size(0))
         top1.update(acc1[0], images[0].size(0))
         top5.update(acc5[0], images[0].size(0))
