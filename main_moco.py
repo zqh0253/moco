@@ -4,6 +4,7 @@ import argparse
 import builtins
 import math
 import os
+os.environ["NCCL_DEBUG"] = "INFO"
 import random
 import shutil
 import time
@@ -81,6 +82,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
+parser.add_argument('--groupname', type=str, default='default')
 
 # moco specific configs:
 parser.add_argument('--moco-dim', default=128, type=int,
@@ -137,7 +139,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
-    wandb.init(project='taco', group='DDP4')
+    wandb.init(project='taco', group=f'DDP{args.groupname}')
     args.gpu = gpu
 
     # suppress printing if not master

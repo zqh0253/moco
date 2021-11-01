@@ -159,6 +159,60 @@ class MoCo(nn.Module):
 
         return logits, labels
 
+class LabelMoCo(MoCo):
+    def __init__(self, base_encoder, dim=128, K=65536, m=0.999, T=0.07, mlp=False):
+        nn.Module.__init__(self)
+        
+        self.register_buffer("label", torch.zeros([K], dtype=torch.int64))
+        self.encoder_q = base_encoder(num_classes=dim * 2)
+        self.encoder_k = base_encoder(num_classes=dim * 2)
+
+        if mlp:  # hack: brute-force replacement
+            dim_mlp = self.encoder_q.fc.weight.shape[1]
+            self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
+            self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
+
+        for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
+            param_k.data.copy_(param_q.data)  # initialize
+            param_k.requires_grad = False  # not update by gradient
+    
+    @torch.no_grad()
+    def _dequeue_and_enqueue(self, keys, labels):
+        keys = concat_all_gather(keys)
+        labels = concat_all_gather(labels)
+        batch_size = keys.shape[0]
+
+        ptr = int(self.queue_ptr)
+        assert self.K % batch_size == 0
+
+        self.queue[:, ptr:ptr+batch_size] = keys.T
+        self.label[ptr:ptr+batch_size] = labels
+        ptr = (ptr+batch_size) % self.K
+
+        self.queue_ptr[0] = ptr
+
+    def forward(self, im_q, im_k, label):
+        q = self.encoder_q(im_q)
+        q = nn.functional.normalize(q, dim=1)
+
+        with torch.no_grad():  # no gradient to keys
+            self._momentum_update_key_encoder()  # update the key encoder
+
+            # shuffle for making use of BN
+            im_k, idx_unshuffle = self._batch_shuffle_ddp(im_k)
+
+            k = self.encoder_k(im_k)  # keys: NxC
+            k = nn.functional.normalize(k, dim=1)
+
+            # undo shuffle
+            k = self._batch_unshuffle_ddp(k, idx_unshuffle)
+        
+        queue_k = self.queue.clone().detach()
+        queue_label = self.label.clone()
+
+        self._dequeue_and_enqueue(k, label)
+
+        return q, k, queue_k, queue_label
 
 # utils
 @torch.no_grad()
